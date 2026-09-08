@@ -28,6 +28,21 @@ static bool notificationsEnabled;
 static void startAdvertising(void);
 static int gapEvent(struct ble_gap_event *event, void *arg);
 
+/**
+ * Reject direct reads and writes; throttle values are sent by notification.
+ */
+static int throttleCharacteristicAccess(uint16_t connHandle,
+                                        uint16_t attrHandle,
+                                        struct ble_gatt_access_ctxt *context,
+                                        void *arg)
+{
+    (void)connHandle;
+    (void)attrHandle;
+    (void)context;
+    (void)arg;
+    return BLE_ATT_ERR_READ_NOT_PERMITTED;
+}
+
 static const struct ble_gatt_svc_def gattServices[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -35,7 +50,7 @@ static const struct ble_gatt_svc_def gattServices[] = {
         .characteristics = (struct ble_gatt_chr_def[]) {
             {
                 .uuid = &throttleCharacteristicUuid.u,
-                .access_cb = NULL,
+                .access_cb = throttleCharacteristicAccess,
                 .val_handle = &throttleValueHandle,
                 .flags = BLE_GATT_CHR_F_NOTIFY,
             },
@@ -52,7 +67,9 @@ static void startAdvertising(void)
 {
     uint8_t ownAddressType;
     struct ble_hs_adv_fields fields;
+    struct ble_hs_adv_fields responseFields;
     struct ble_gap_adv_params parameters;
+    int rc;
 
     if (ble_hs_id_infer_auto(0, &ownAddressType) != 0) {
         ESP_LOGE(TAG, "Could not determine local BLE address type");
@@ -61,24 +78,37 @@ static void startAdvertising(void)
 
     memset(&fields, 0, sizeof(fields));
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.name = (uint8_t *)BLE_SLAVE_DEVICE_NAME;
-    fields.name_len = strlen(BLE_SLAVE_DEVICE_NAME);
-    fields.name_is_complete = 1;
     fields.uuids128 = (ble_uuid128_t *)&throttleServiceUuid;
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
 
-    if (ble_gap_adv_set_fields(&fields) != 0) {
-        ESP_LOGE(TAG, "Could not set BLE advertisement fields");
+    rc = ble_gap_adv_set_fields(&fields);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Could not set BLE advertisement fields: %d", rc);
+        return;
+    }
+
+    // The primary advertisement cannot fit both the 128-bit UUID and the
+    // complete device name, so put the name in the scan response instead.
+    memset(&responseFields, 0, sizeof(responseFields));
+    responseFields.name = (uint8_t *)BLE_SLAVE_DEVICE_NAME;
+    responseFields.name_len = strlen(BLE_SLAVE_DEVICE_NAME);
+    responseFields.name_is_complete = 1;
+    rc = ble_gap_adv_rsp_set_fields(&responseFields);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Could not set BLE scan response fields: %d", rc);
         return;
     }
 
     memset(&parameters, 0, sizeof(parameters));
     parameters.conn_mode = BLE_GAP_CONN_MODE_UND;
     parameters.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    if (ble_gap_adv_start(ownAddressType, NULL, BLE_HS_FOREVER,
-                          &parameters, gapEvent, NULL) != 0) {
-        ESP_LOGE(TAG, "Could not start BLE advertising");
+    rc = ble_gap_adv_start(ownAddressType, NULL, BLE_HS_FOREVER,
+                           &parameters, gapEvent, NULL);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Could not start BLE advertising: %d", rc);
+    } else {
+        ESP_LOGI(TAG, "Advertising throttle service");
     }
 }
 

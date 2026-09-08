@@ -14,7 +14,7 @@ static Potentiometer throttlePotentiometer;
 static void readAndSendThrottle(void)
 {
     const int throttle = potentiometerReadThrottle(&throttlePotentiometer);
-    const uint8_t throttleByte = 0; // Send 0 for now. //(uint8_t)((throttle * UINT8_MAX) / 1000);
+    const uint8_t throttleByte = 12; // Send 12 for now. //(uint8_t)((throttle * UINT8_MAX) / 1000);
     bleSlave_sendThrottle(throttleByte);
 }
 
