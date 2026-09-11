@@ -13,9 +13,18 @@ static Potentiometer throttlePotentiometer;
  */
 static void readAndSendThrottle(void)
 {
+    static uint32_t tickCounter = 0;
+
     const int throttle = potentiometerReadThrottle(&throttlePotentiometer);
-    const uint8_t throttleByte = 12; // Send 12 for now. //(uint8_t)((throttle * UINT8_MAX) / 1000);
+    const uint8_t throttleByte = (uint8_t)((throttle * UINT8_MAX) / 1000);
     bleSlave_sendThrottle(throttleByte);
+
+    tickCounter++;
+    // Print once ever second roughly.
+    if (tickCounter >= 132) {
+        printf("Controller throttle: %u\n", throttleByte);
+        tickCounter = 0;
+    }
 }
 
 /**
